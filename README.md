@@ -20,12 +20,6 @@
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-
-[![build](https://git.pnet.ch/golang/pkg/profiler/badges/master/build.svg)](https://git.pnet.ch/golang/pkg/profiler/badges/master/build.svg)
-[![Go Report Card](https://goreport.app.pnet.ch/badge/git.pnet.ch/golang/pkg/profiler)](https://goreport.app.pnet.ch/report/git.pnet.ch/golang/pkg/profiler)
-[![GoDoc](http://godoc.app.pnet.ch/git.pnet.ch/golang/pkg/profiler?status.svg)](http://godoc.app.pnet.ch/git.pnet.ch/golang/pkg/profiler)
-
-
 # profiler
 
 ## Usage
