@@ -33,6 +33,7 @@ type Hooker interface {
 
 // Profiler represents profiling
 type Profiler struct {
+	sync.Mutex
 	signal  os.Signal
 	address string
 	timeout time.Duration
@@ -103,8 +104,6 @@ func (p *Profiler) Address() string {
 func (p *Profiler) Start() {
 	go func() {
 		p.once.Do(p.handler)
-		p.once = new(sync.Once) // reset sync.Once for a subsequent call to Start
-		log.Println("profiler handler stopped")
 	}()
 }
 
@@ -112,10 +111,20 @@ func (p *Profiler) Start() {
 func (p *Profiler) Stop() {
 	p.stop <- struct{}{}
 	<-p.done
+	p.reset()
+}
+
+func (p *Profiler) reset() {
+	p.Lock()
+	p.once = new(sync.Once) // reset sync.Once for a subsequent call to Start
+	p.Unlock()
 }
 
 func (p *Profiler) handler() {
 	log.Printf("start profiler handler - pprof endpoint will be startet on signal: %v", p.signal)
+	defer func() {
+		log.Println("profiler handler stopped")
+	}()
 	sig := make(chan os.Signal, 1)
 	for {
 		// signal handling
