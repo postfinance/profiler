@@ -117,8 +117,6 @@ func (p *Profiler) Stop() {
 func (p *Profiler) handler() {
 	log.Printf("start profiler handler - pprof endpoint will be startet on signal: %v", p.signal)
 	sig := make(chan os.Signal, 1)
-	// stop receving signals and drain the signal channel
-
 	for {
 		// signal handling
 		signal.Notify(sig, p.signal)
