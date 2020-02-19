@@ -50,7 +50,7 @@ After *timeout* the endpoint will shutdown.
 
 ### Collect pprof data
 ```bash
-go tool pprof -http $(hostname):8888 http://localhost:6666/debug/pprof/profile
+go tool pprof -http $(hostname):8080 http://localhost:6666/debug/pprof/profile
 ```
 
 ## Usage with kubernetes services
@@ -59,11 +59,10 @@ go tool pprof -http $(hostname):8888 http://localhost:6666/debug/pprof/profile
 ```bash
 $ k get pods
 NAME                    READY   STATUS    RESTARTS   AGE
-mule-8584d5dcd6-6kllk   1/1     Running   0          17m
-mule-8584d5dcd6-8m89n   1/1     Running   0          17m
-mule-8584d5dcd6-cvntt   1/1     Running   0          17m
-$ k exec -ti mule-8584d5dcd6-6kllk sh
-/ # pkill -SIGUSR1 mule-server
+...
+
+$ k exec -ti <your pod> sh
+/ # pkill -USR1 <your Go program>
 / #
 ```
 After *timeout* the endpoint will shutdown.
@@ -71,7 +70,7 @@ After *timeout* the endpoint will shutdown.
 
 ### Check log
 ```bash
-$ k logs mule-8584d5dcd6-6kllk -f
+$ k logs <your pod> -f
 ...
 2020/02/10 16:37:09 start pprof endpoint on ":6666"
 ...
@@ -79,7 +78,7 @@ $ k logs mule-8584d5dcd6-6kllk -f
 
 ### Port-forward
 ```bash
-$  k port-forward mule-8584d5dcd6-6kllk 8080:6666
+$  k port-forward <your pod> 8080:6666
 Forwarding from 127.0.0.1:8080 -> 6666
 Forwarding from [::1]:8080 -> 6666
 Handling connection for 8080
