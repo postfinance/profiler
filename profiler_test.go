@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/postfinace/profiler"
+	"github.com/postfinance/profiler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

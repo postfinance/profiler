@@ -1,4 +1,4 @@
-module github.com/postfinace/profiler
+module github.com/postfinance/profiler
 
 go 1.13
 
