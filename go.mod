@@ -1,4 +1,4 @@
-module git.pnet.ch/golang/pkg/profiler
+module github.com/postfinace/profiler
 
 go 1.13
 
