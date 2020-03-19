@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"git.pnet.ch/golang/pkg/profiler"
+	"github.com/postfinance/profiler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
