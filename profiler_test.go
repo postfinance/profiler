@@ -29,7 +29,6 @@ func TestMain(m *testing.M) {
 func testProfiler(t *testing.T, p *profiler.Profiler) {
 	p.Start()
 	time.Sleep(1 * time.Second) // wait until the setup is done
-	syscall.Kill(syscall.Getpid(), signal)
 	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
 	time.Sleep(1 * time.Second) // wait until the signal is processed
 	resp, err := http.Get(fmt.Sprintf("http://%s", p.Address()))
@@ -161,7 +160,6 @@ func TestWithHooks(t *testing.T) {
 
 	p.Start()
 	time.Sleep(1 * time.Second) // wait until the setup is done
-	syscall.Kill(syscall.Getpid(), signal)
 	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
 	time.Sleep(1 * time.Second) // wait until the signal is processed
 	assert.True(t, one.HasPreStartupTriggered())
