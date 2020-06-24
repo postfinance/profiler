@@ -38,7 +38,7 @@ profiler.New(
 ```
 
 Defaults:
-- Signal *USR1*
+- Signal *HUP*
 - Listen *:6666*
 - Timeout *10m*
 
