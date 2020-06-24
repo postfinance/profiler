@@ -31,7 +31,7 @@ profiler.New().Start()
 
 // ... or with custom values
 profiler.New(
-    profiler.WithSignal(syscall.SIGUSR2),
+    profiler.WithSignal(syscall.SIGUSR1),
     profiler.WithAddress(":8080"),
     profiler.WithTimeout(15 * time.Minute),
 )
@@ -44,7 +44,7 @@ Defaults:
 
 ### Start the pprof endpoint
 ```bash
-pkill -USR1 <your Go program>
+pkill -HUP <your Go program>
 ```
 After *timeout* the endpoint will shutdown.
 
@@ -62,7 +62,7 @@ NAME                    READY   STATUS    RESTARTS   AGE
 ...
 
 $ k exec -ti <your pod> sh
-/ # pkill -USR1 <your Go program>
+/ # pkill -HUP <your Go program>
 / #
 ```
 After *timeout* the endpoint will shutdown.
