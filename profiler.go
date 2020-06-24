@@ -77,12 +77,12 @@ func WithHooks(hooks ...Hooker) Opt {
 
 // New returns a new profiler
 // Defaults:
-// - Signal : syscall.SIGUSR1
+// - Signal : syscall.SIGHUP
 // - Address: ":6666"
 // - Timeout: 10m
 func New(opts ...Opt) *Profiler {
 	p := &Profiler{
-		signal:  syscall.SIGUSR1,
+		signal:  syscall.SIGHUP,
 		address: ":6666",
 		timeout: 10 * time.Minute,
 		stop:    make(chan struct{}),
