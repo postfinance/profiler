@@ -10,7 +10,7 @@ import (
 
 func TestDefaultProfiler(t *testing.T) {
 	p := New()
-	assert.Equal(t, syscall.SIGUSR1, p.signal)
+	assert.Equal(t, syscall.SIGHUP, p.signal)
 	assert.Equal(t, ":6666", p.address)
 	assert.Equal(t, 10*time.Minute, p.timeout)
 }
