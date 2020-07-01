@@ -121,7 +121,7 @@ func (p *Profiler) reset() {
 }
 
 func (p *Profiler) handler() {
-	log.Printf("start profiler handler - pprof endpoint will be startet on signal: %v", p.signal)
+	log.Printf("start profiler handler - pprof endpoint will be started on signal: %v", p.signal)
 	defer func() {
 		log.Println("profiler handler stopped")
 	}()
