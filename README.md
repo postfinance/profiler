@@ -1,6 +1,6 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/postfinance/profiler)](https://goreportcard.com/report/github.com/postfinance/profiler)
 [![GoDoc](https://godoc.org/github.com/postfinance/profiler?status.svg)](https://godoc.org/github.com/postfinance/profiler)
-[![Build Status](https://travis-ci.com/postfinance/profiler.svg?branch=master)](https://travis-ci.com/postfinance/profiler)
+[![Build Status](https://github.com/postfinance/profiler/workflows/build/badge.svg)](https://github.com/postfinance/profiler/actions)
 [![Coverage Status](https://coveralls.io/repos/github/postfinance/profiler/badge.svg?branch=master)](https://coveralls.io/github/postfinance/profiler?branch=master)
 
 
