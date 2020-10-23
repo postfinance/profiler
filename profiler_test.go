@@ -16,26 +16,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// nolint: gochecknoglobals
 var (
 	signal  = syscall.SIGUSR2
 	timeout = 3 * time.Second
 )
 
 func TestMain(m *testing.M) {
-	//log.SetOutput(ioutil.Discard)
 	os.Exit(m.Run())
 }
 
-func testProfiler(t *testing.T, p *profiler.Profiler) {
+func testProfiler(t *testing.T, p *profiler.Profiler, success bool) {
 	p.Start()
 	time.Sleep(1 * time.Second) // wait until the setup is done
 	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
 	time.Sleep(1 * time.Second) // wait until the signal is processed
-	resp, err := http.Get(fmt.Sprintf("http://%s", p.Address()))
-	assert.NoError(t, err)
-	if resp != nil {
-		resp.Body.Close()
+
+	client := http.Client{
+		Timeout: 10 * time.Millisecond,
 	}
+
+	resp, err := client.Get(fmt.Sprintf("http://%s", p.Address()))
+	assert.Equal(t, err == nil, success)
+
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+
 	p.Stop()
 }
 
@@ -45,6 +52,7 @@ func TestStart(t *testing.T) {
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	assert.NoError(t, err)
 	assert.NoError(t, l.Close())
+
 	address := fmt.Sprintf("localhost:%s", port)
 
 	p := profiler.New(
@@ -54,7 +62,7 @@ func TestStart(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	testProfiler(t, p)
+	testProfiler(t, p, true)
 }
 
 func TestRestart(t *testing.T) {
@@ -63,6 +71,7 @@ func TestRestart(t *testing.T) {
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	assert.NoError(t, err)
 	assert.NoError(t, l.Close())
+
 	address := fmt.Sprintf("localhost:%s", port)
 
 	p := profiler.New(
@@ -72,8 +81,8 @@ func TestRestart(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	testProfiler(t, p)
-	testProfiler(t, p)
+	testProfiler(t, p, true)
+	testProfiler(t, p, true)
 }
 
 type TestHookOne struct {
@@ -92,6 +101,7 @@ func (tho *TestHookOne) PreStart() {
 func (tho *TestHookOne) HasPreStartupTriggered() bool {
 	tho.Lock()
 	defer tho.Unlock()
+
 	return tho.PreStartupTriggered
 }
 
@@ -105,6 +115,7 @@ func (tho *TestHookOne) PostShutdown() {
 func (tho *TestHookOne) HasPostShutdownTriggered() bool {
 	tho.Lock()
 	defer tho.Unlock()
+
 	return tho.PostShutdownTriggered
 }
 
@@ -124,6 +135,7 @@ func (tht *TestHookTwo) PreStart() {
 func (tht *TestHookTwo) HasPreStartupTriggered() bool {
 	tht.Lock()
 	defer tht.Unlock()
+
 	return tht.PreStartupTriggered
 }
 
@@ -137,6 +149,7 @@ func (tht *TestHookTwo) PostShutdown() {
 func (tht *TestHookTwo) HasPostShutdownTriggered() bool {
 	tht.Lock()
 	defer tht.Unlock()
+
 	return tht.PostShutdownTriggered
 }
 func TestWithHooks(t *testing.T) {
@@ -145,6 +158,7 @@ func TestWithHooks(t *testing.T) {
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	assert.NoError(t, err)
 	assert.NoError(t, l.Close())
+
 	address := fmt.Sprintf("localhost:%s", port)
 
 	one := &TestHookOne{}
@@ -164,11 +178,14 @@ func TestWithHooks(t *testing.T) {
 	time.Sleep(1 * time.Second) // wait until the signal is processed
 	assert.True(t, one.HasPreStartupTriggered())
 	assert.True(t, two.HasPreStartupTriggered())
+
 	resp, err := http.Get(fmt.Sprintf("http://%s", p.Address()))
 	assert.NoError(t, err)
+
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
+
 	p.Stop()
 	assert.True(t, one.HasPostShutdownTriggered())
 	assert.True(t, two.HasPostShutdownTriggered())
@@ -180,23 +197,24 @@ type HookFailedStart struct {
 }
 
 func (hfs *HookFailedStart) PreStart() {
+	log.Println("HookFailedStart PreStart triggered")
 }
 
 func (hfs *HookFailedStart) PostShutdown() {
 	log.Println("HookFailedStart PostShutdown triggered")
 	hfs.Lock()
-	defer hfs.Unlock()
 	hfs.Shutdown = true
+	hfs.Unlock()
 }
 
 func (hfs *HookFailedStart) IsShutdown() bool {
 	hfs.Lock()
 	defer hfs.Unlock()
+
 	return hfs.Shutdown
 }
 
 func TestFailedStart(t *testing.T) {
-	t.SkipNow()
 	// get a free port
 	l, _ := net.Listen("tcp", "")
 
@@ -205,6 +223,7 @@ func TestFailedStart(t *testing.T) {
 
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	assert.NoError(t, err)
+
 	address := fmt.Sprintf("localhost:%s", port)
 
 	fh := &HookFailedStart{}
@@ -216,6 +235,6 @@ func TestFailedStart(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	testProfiler(t, p)
+	testProfiler(t, p, false)
 	assert.True(t, fh.IsShutdown())
 }

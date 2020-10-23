@@ -11,13 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	// nolint: gosec // G108: Profiling endpoint is automatically exposed on /debug/pprof
 	_ "net/http/pprof" // normally pprof will be imported in the main package
 )
 
+// nolint: gochecknoglobals
 var (
 	pprofmux *http.ServeMux
 )
 
+// nolint: gochecknoinits
 func init() {
 	pprofmux = http.DefaultServeMux
 	http.DefaultServeMux = http.NewServeMux()
@@ -48,9 +51,9 @@ type Profiler struct {
 type Opt func(*Profiler)
 
 // WithSignal sets the signal to aktivate the pprof handler
-func WithSignal(signal os.Signal) Opt {
+func WithSignal(s os.Signal) Opt {
 	return func(p *Profiler) {
-		p.signal = signal
+		p.signal = s
 	}
 }
 
@@ -89,9 +92,11 @@ func New(opts ...Opt) *Profiler {
 		done:    make(chan struct{}),
 		once:    new(sync.Once),
 	}
+
 	for _, opt := range opts {
 		opt(p)
 	}
+
 	return p
 }
 
@@ -122,10 +127,11 @@ func (p *Profiler) reset() {
 
 func (p *Profiler) handler() {
 	log.Printf("start profiler handler - pprof endpoint will be started on signal: %v", p.signal)
-	defer func() {
-		log.Println("profiler handler stopped")
-	}()
+
+	defer log.Println("profiler handler stopped")
+
 	sig := make(chan os.Signal, 1)
+
 	for {
 		// signal handling
 		signal.Notify(sig, p.signal)
@@ -135,6 +141,7 @@ func (p *Profiler) handler() {
 		case <-p.stop:
 			disableSignals(sig)
 			p.done <- struct{}{}
+
 			return
 		}
 		// start the pprof endpoint
@@ -143,30 +150,24 @@ func (p *Profiler) handler() {
 			Addr:    p.address,
 			Handler: pprofmux,
 		}
+
 		go func() {
 			log.Printf("start pprof endpoint on %q\n", p.address)
 			// execute the PreStart hooks
 			for _, h := range p.hooks {
 				h.PreStart()
 			}
+
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Println("failed to start pprof endpoint:", err)
 			} else {
 				log.Println("pprof endpoint stopped")
 			}
-			/*
-				err := srv.ListenAndServe()
-				switch {
-				case err != nil && err != http.ErrServerClosed:
-					log.Println("failed to start pprof endpoint:", err)
-				default:
-					log.Println("pprof endpoint stopped")
-				}
-			*/
 			// execute the PostShutdown hooks ... even after a failed startup
 			for _, h := range p.hooks {
 				h.PostShutdown()
 			}
+
 			close(shutdown)
 		}()
 		//
@@ -183,9 +184,11 @@ func (p *Profiler) handler() {
 			if !timer.Stop() {
 				<-timer.C
 			}
+
 			shutdownEndpoint(srv, p.timeout)
 			<-shutdown
 			p.done <- struct{}{}
+
 			return
 		}
 	}
@@ -204,8 +207,11 @@ func disableSignals(c chan os.Signal) {
 // shutdownEndpoint shutdown the http server graceful
 func shutdownEndpoint(srv *http.Server, timeout time.Duration) {
 	log.Printf("shutdown pprof endpoint on %q\n", srv.Addr)
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
 	defer cancel()
+
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Println("failed to shutdown pprof endpoint:", err)
 	}
