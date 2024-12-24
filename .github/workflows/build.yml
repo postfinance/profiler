@@ -1,23 +1,28 @@
 name: build
-on: [push, pull_request]
+on: 
+  push:
+  pull_request:
 
 jobs:
-  lint:
+  golangci:
+    name: lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: docker://golangci/golangci-lint:v1.31.0
-      with:
-        args: golangci-lint run
-      env:
-        CGO_ENABLED: 0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62.2
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-go@v1
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
       with:
-        go-version: 1.15
+        go-version: 1.23.4
     - name: Run Unit tests
       run: go test -covermode atomic -coverprofile=profile.cov $(go list -m)/...
     - name: Send coverage
@@ -26,4 +31,3 @@ jobs:
       run: |
         GO111MODULE=off go get github.com/mattn/goveralls
         $(go env GOPATH)/bin/goveralls -coverprofile=profile.cov -service=github
-

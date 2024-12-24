@@ -1,11 +1,15 @@
 package profiler_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"expvar"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -26,34 +30,58 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func testProfiler(t *testing.T, p *profiler.Profiler, success bool) {
+func testAddress(t *testing.T) string {
+	// get a free port
+	l, _ := net.Listen("tcp", "")
+	_, port, err := net.SplitHostPort(l.Addr().String())
+	require.NoError(t, err)
+	require.NoError(t, l.Close())
+
+	return fmt.Sprintf("localhost:%s", port)
+}
+
+func testProfiler(t *testing.T,
+	p *profiler.Profiler,
+	ep string,
+	success bool,
+	checkBody func(t *testing.T, body []byte),
+) {
 	p.Start()
-	time.Sleep(1 * time.Second) // wait until the setup is done
+	time.Sleep(100 * time.Millisecond) // switch goroutine
 	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
-	time.Sleep(1 * time.Second) // wait until the signal is processed
+	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	client := http.Client{
 		Timeout: 10 * time.Millisecond,
 	}
 
-	resp, err := client.Get(fmt.Sprintf("http://%s", p.Address()))
+	if ep == "" {
+		ep = "/debug/pprof"
+
+		if checkBody == nil {
+			checkBody = func(t *testing.T, b []byte) {
+				require.Contains(t, string(b), "<title>/debug/pprof/</title>")
+			}
+		}
+	}
+
+	resp, err := client.Get(fmt.Sprintf("http://%s%s", p.Address(), ep))
 	assert.Equal(t, err == nil, success)
 
-	if resp != nil {
+	if resp != nil && resp.Body != nil {
+		var buf bytes.Buffer
+
+		buf.ReadFrom(resp.Body)
 		_ = resp.Body.Close()
+
+		checkBody(t, buf.Bytes())
 	}
 
 	p.Stop()
 }
 
 func TestStart(t *testing.T) {
-	// get a free port
-	l, _ := net.Listen("tcp", "")
-	_, port, err := net.SplitHostPort(l.Addr().String())
-	assert.NoError(t, err)
-	assert.NoError(t, l.Close())
-
-	address := fmt.Sprintf("localhost:%s", port)
+	address := testAddress(t)
 
 	p := profiler.New(
 		profiler.WithSignal(signal),
@@ -62,17 +90,11 @@ func TestStart(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	testProfiler(t, p, true)
+	testProfiler(t, p, "", true, nil)
 }
 
 func TestRestart(t *testing.T) {
-	// get a free port
-	l, _ := net.Listen("tcp", "")
-	_, port, err := net.SplitHostPort(l.Addr().String())
-	assert.NoError(t, err)
-	assert.NoError(t, l.Close())
-
-	address := fmt.Sprintf("localhost:%s", port)
+	address := testAddress(t)
 
 	p := profiler.New(
 		profiler.WithSignal(signal),
@@ -81,9 +103,113 @@ func TestRestart(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	testProfiler(t, p, true)
-	testProfiler(t, p, true)
+	testProfiler(t, p, "", true, nil)
+	testProfiler(t, p, "", true, nil)
 }
+
+func TestFastRestart(t *testing.T) {
+	address := testAddress(t)
+
+	startEvent := 0
+	stopEvent := 0
+
+	p := profiler.New(
+		profiler.WithSignal(signal),
+		profiler.WithAddress(address),
+		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(func(msg string, args ...any) {
+			if strings.Contains(msg, "start profiler signal handler") {
+				startEvent++
+			}
+			if strings.Contains(msg, "stop profiler signal handler") {
+				stopEvent++
+			}
+		}),
+	)
+	require.NotNil(t, p)
+
+	p.Start()
+	p.Stop()
+	p.Start()
+	p.Stop()
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+
+	require.Equal(t, 2, startEvent)
+	require.Equal(t, 2, stopEvent)
+}
+
+func TestMultipleStartStop(t *testing.T) {
+	address := testAddress(t)
+
+	startEvent := 0
+	stopEvent := 0
+
+	p := profiler.New(
+		profiler.WithSignal(signal),
+		profiler.WithAddress(address),
+		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(func(msg string, args ...any) {
+			if strings.Contains(msg, "start profiler signal handler") {
+				startEvent++
+			}
+			if strings.Contains(msg, "stop profiler signal handler") {
+				stopEvent++
+			}
+		}),
+	)
+	require.NotNil(t, p)
+
+	p.Start()
+	p.Start()
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+
+	require.Equal(t, 1, startEvent)
+	require.Equal(t, 0, stopEvent)
+
+	p.Stop()
+	p.Stop()
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+
+	require.Equal(t, 1, startEvent)
+	require.Equal(t, 1, stopEvent)
+
+	p.Start()
+	p.Start()
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+
+	require.Equal(t, 2, startEvent)
+	require.Equal(t, 1, stopEvent)
+
+	p.Stop()
+	p.Stop()
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+
+	require.Equal(t, 2, startEvent)
+	require.Equal(t, 2, stopEvent)
+}
+
+func TestExpvars(t *testing.T) {
+	hello := expvar.NewString("hello")
+	hello.Set("world")
+
+	address := testAddress(t)
+
+	p := profiler.New(
+		profiler.WithSignal(signal),
+		profiler.WithAddress(address),
+		profiler.WithTimeout(timeout),
+	)
+	require.NotNil(t, p)
+
+	testProfiler(t, p, "/debug/vars", true, func(t *testing.T, body []byte) {
+		m := make(map[string]any)
+		require.NoError(t, json.Unmarshal(body, &m))
+		require.Equal(t, "world", m["hello"].(string))
+		t.Log("hello", m["hello"].(string))
+	})
+}
+
+// =============================================================================
 
 type TestHookOne struct {
 	sync.Mutex
@@ -152,14 +278,9 @@ func (tht *TestHookTwo) HasPostShutdownTriggered() bool {
 
 	return tht.PostShutdownTriggered
 }
-func TestWithHooks(t *testing.T) {
-	// get a free port
-	l, _ := net.Listen("tcp", "")
-	_, port, err := net.SplitHostPort(l.Addr().String())
-	assert.NoError(t, err)
-	assert.NoError(t, l.Close())
 
-	address := fmt.Sprintf("localhost:%s", port)
+func TestWithHooks(t *testing.T) {
+	address := testAddress(t)
 
 	one := &TestHookOne{}
 	two := &TestHookTwo{}
@@ -173,9 +294,9 @@ func TestWithHooks(t *testing.T) {
 	require.NotNil(t, p)
 
 	p.Start()
-	time.Sleep(1 * time.Second) // wait until the setup is done
+	time.Sleep(100 * time.Millisecond) // switch goroutine
 	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
-	time.Sleep(1 * time.Second) // wait until the signal is processed
+	time.Sleep(100 * time.Millisecond) // switch goroutine
 	assert.True(t, one.HasPreStartupTriggered())
 	assert.True(t, two.HasPreStartupTriggered())
 
@@ -190,6 +311,8 @@ func TestWithHooks(t *testing.T) {
 	assert.True(t, one.HasPostShutdownTriggered())
 	assert.True(t, two.HasPostShutdownTriggered())
 }
+
+// =============================================================================
 
 type HookFailedStart struct {
 	sync.Mutex
@@ -213,7 +336,6 @@ func (hfs *HookFailedStart) IsShutdown() bool {
 
 	return hfs.Shutdown
 }
-
 func TestFailedStart(t *testing.T) {
 	// get a free port
 	l, _ := net.Listen("tcp", "")
@@ -235,6 +357,6 @@ func TestFailedStart(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	testProfiler(t, p, false)
+	testProfiler(t, p, "", false, nil)
 	assert.True(t, fh.IsShutdown())
 }
