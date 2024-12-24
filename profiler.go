@@ -16,9 +16,6 @@ import (
 	"net/http/pprof"
 )
 
-// EventHandler function to handle events
-type EventHandler func(v string, args ...any)
-
 // Hooker represents the interface for Profiler hooks
 type Hooker interface {
 	// PreStart will be executed after the signal was received but before the debug endpoint starts
@@ -94,7 +91,7 @@ func (p *Profiler) start() {
 	p.running.Lock()
 	defer p.running.Unlock()
 
-	p.evt("start profiler signal handler", "signal", p.signal)
+	p.evt(InfoEvent, "start profiler signal handler", "signal", p.signal)
 
 	sigC := make(chan os.Signal, 1)
 	wg := new(sync.WaitGroup)
@@ -111,7 +108,7 @@ func (p *Profiler) start() {
 			p.startEndpoint(ctx)
 			wg.Done()
 		case <-p.stopC: // stop the signal handler
-			p.evt("stop profiler signal handler", "signal", p.signal)
+			p.evt(InfoEvent, "stop profiler signal handler", "signal", p.signal)
 
 			disableSignals(sigC)
 
@@ -120,7 +117,7 @@ func (p *Profiler) start() {
 			cancel()
 			wg.Wait()
 
-			p.evt("profiler signal handler stopped")
+			p.evt(InfoEvent, "profiler signal handler stopped")
 
 			return
 		}
@@ -139,7 +136,7 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 	}
 
 	go func() {
-		p.evt("start debug endpoint", "address", p.address)
+		p.evt(InfoEvent, "start debug endpoint", "address", p.address)
 
 		// execute the PreStart hooks
 		for _, h := range p.hooks {
@@ -147,7 +144,7 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 		}
 
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			p.evt("ERROR: start debug endpoint", "err", err)
+			p.evt(ErrorEvent, "start debug endpoint", "err", err)
 		}
 
 		// execute the PostShutdown hooks ... even after a failed startup
@@ -166,17 +163,17 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 		timer.Stop()
 	}
 
-	p.evt("stop debug endpoint", "address", p.address, "timeout", p.timeout)
+	p.evt(InfoEvent, "stop debug endpoint", "address", p.address, "timeout", p.timeout)
 
 	sCtx, cancel := context.WithTimeout(context.Background(), p.timeout)
 	defer cancel()
 
 	if err := srv.Shutdown(sCtx); err != nil {
-		p.evt("ERROR: shutdown debug endpoint", "err", err)
+		p.evt(ErrorEvent, "shutdown debug endpoint", "err", err)
 	}
 
 	<-shutdown
-	p.evt("debug endpoint stopped")
+	p.evt(InfoEvent, "debug endpoint stopped")
 }
 
 // =============================================================================

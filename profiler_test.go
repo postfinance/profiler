@@ -47,15 +47,15 @@ func testEventHandler(w io.Writer, mu *sync.Mutex) profiler.EventHandler {
 		Level: slog.LevelDebug,
 	}))
 
-	return func(msg string, args ...any) {
+	return func(eventType profiler.EventType, msg string, args ...any) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		switch {
-		case strings.HasPrefix(msg, "DEBUG: "):
-			l.Debug(strings.TrimPrefix(msg, "DEBUG: "), args...)
-		case strings.HasPrefix(msg, "ERROR: "):
-			l.Error(strings.TrimPrefix(msg, "ERROR: "), args...)
+		switch eventType {
+		case profiler.DebugEvent:
+			l.Debug(msg, args...)
+		case profiler.ErrorEvent:
+			l.Error(msg, args...)
 		default:
 			l.Info(msg, args...)
 		}
@@ -157,7 +157,7 @@ func TestMultipleStartStop(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(func(msg string, args ...any) {
+		profiler.WithEventHandler(func(_ profiler.EventType, msg string, _ ...any) {
 			if strings.Contains(msg, "start profiler signal handler") {
 				startSignalHandlerEvents.Add(1)
 			}
