@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"expvar"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -56,9 +55,7 @@ func New(options ...Option) *Profiler {
 
 		started: new(atomic.Int32),
 		stopC:   make(chan struct{}),
-		evt: func(msg string, args ...any) {
-			log.Println(append([]any{msg}, args...)...)
-		},
+		evt:     DefaultEventHandler(),
 	}
 
 	for _, option := range options {
@@ -98,7 +95,6 @@ func (p *Profiler) start() {
 	defer p.running.Unlock()
 
 	p.evt("start profiler signal handler", "signal", p.signal)
-	defer p.evt("profiler signal handler stopped")
 
 	sigC := make(chan os.Signal, 1)
 	wg := new(sync.WaitGroup)
@@ -124,6 +120,8 @@ func (p *Profiler) start() {
 			cancel()
 			wg.Wait()
 
+			p.evt("profiler signal handler stopped")
+
 			return
 		}
 	}
@@ -142,7 +140,7 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 
 	go func() {
 		p.evt("start debug endpoint", "address", p.address)
-		defer p.evt("debug endpoint stopped")
+
 		// execute the PreStart hooks
 		for _, h := range p.hooks {
 			h.PreStart()
@@ -150,8 +148,6 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			p.evt("ERROR: start debug endpoint", "err", err)
-		} else {
-			p.evt("debug endpoint stopped")
 		}
 
 		// execute the PostShutdown hooks ... even after a failed startup
@@ -170,7 +166,7 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 		timer.Stop()
 	}
 
-	p.evt("shutdown debug endpoint", "address", p.address, "timeout", p.timeout)
+	p.evt("stop debug endpoint", "address", p.address, "timeout", p.timeout)
 
 	sCtx, cancel := context.WithTimeout(context.Background(), p.timeout)
 	defer cancel()
@@ -180,6 +176,7 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 	}
 
 	<-shutdown
+	p.evt("debug endpoint stopped")
 }
 
 // =============================================================================

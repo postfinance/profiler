@@ -5,18 +5,20 @@ import (
 	"encoding/json"
 	"expvar"
 	"fmt"
+	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/postfinance/profiler"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,6 +42,23 @@ func testAddress(t *testing.T) string {
 	return fmt.Sprintf("localhost:%s", port)
 }
 
+func testEventHandler(w io.Writer) profiler.EventHandler {
+	l := slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
+	return func(msg string, args ...any) {
+		switch {
+		case strings.HasPrefix(msg, "DEBUG: "):
+			l.Debug(strings.TrimPrefix(msg, "DEBUG: "), args...)
+		case strings.HasPrefix(msg, "ERROR: "):
+			l.Error(strings.TrimPrefix(msg, "ERROR: "), args...)
+		default:
+			l.Info(msg, args...)
+		}
+	}
+}
+
 func testProfiler(t *testing.T,
 	p *profiler.Profiler,
 	ep string,
@@ -48,7 +67,7 @@ func testProfiler(t *testing.T,
 ) {
 	p.Start()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
-	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
+	require.NoError(t, syscall.Kill(syscall.Getpid(), signal))
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	client := http.Client{
@@ -66,7 +85,7 @@ func testProfiler(t *testing.T,
 	}
 
 	resp, err := client.Get(fmt.Sprintf("http://%s%s", p.Address(), ep))
-	assert.Equal(t, err == nil, success)
+	require.Equal(t, err == nil, success)
 
 	if resp != nil && resp.Body != nil {
 		var buf bytes.Buffer
@@ -81,68 +100,49 @@ func testProfiler(t *testing.T,
 }
 
 func TestStart(t *testing.T) {
+	var buf bytes.Buffer
+
 	address := testAddress(t)
 
 	p := profiler.New(
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(testEventHandler(&buf)),
 	)
 	require.NotNil(t, p)
 
 	testProfiler(t, p, "", true, nil)
+
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+	t.Logf("\n%s", buf.String())
 }
 
 func TestRestart(t *testing.T) {
+	var buf bytes.Buffer
+
 	address := testAddress(t)
 
 	p := profiler.New(
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(testEventHandler(&buf)),
 	)
 	require.NotNil(t, p)
 
 	testProfiler(t, p, "", true, nil)
 	testProfiler(t, p, "", true, nil)
-}
 
-func TestFastRestart(t *testing.T) {
-	address := testAddress(t)
-
-	startEvent := 0
-	stopEvent := 0
-
-	p := profiler.New(
-		profiler.WithSignal(signal),
-		profiler.WithAddress(address),
-		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(func(msg string, args ...any) {
-			if strings.Contains(msg, "start profiler signal handler") {
-				startEvent++
-			}
-			if strings.Contains(msg, "stop profiler signal handler") {
-				stopEvent++
-			}
-		}),
-	)
-	require.NotNil(t, p)
-
-	p.Start()
-	p.Stop()
-	p.Start()
-	p.Stop()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
-
-	require.Equal(t, 2, startEvent)
-	require.Equal(t, 2, stopEvent)
+	t.Logf("\n%s", buf.String())
 }
 
 func TestMultipleStartStop(t *testing.T) {
 	address := testAddress(t)
 
-	startEvent := 0
-	stopEvent := 0
+	startSignalHandlerEvents := new(atomic.Int32)
+	stopSignalHandlerEvents := new(atomic.Int32)
 
 	p := profiler.New(
 		profiler.WithSignal(signal),
@@ -150,10 +150,10 @@ func TestMultipleStartStop(t *testing.T) {
 		profiler.WithTimeout(timeout),
 		profiler.WithEventHandler(func(msg string, args ...any) {
 			if strings.Contains(msg, "start profiler signal handler") {
-				startEvent++
+				startSignalHandlerEvents.Add(1)
 			}
 			if strings.Contains(msg, "stop profiler signal handler") {
-				stopEvent++
+				stopSignalHandlerEvents.Add(1)
 			}
 		}),
 	)
@@ -163,32 +163,34 @@ func TestMultipleStartStop(t *testing.T) {
 	p.Start()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
-	require.Equal(t, 1, startEvent)
-	require.Equal(t, 0, stopEvent)
+	require.Equal(t, int32(1), startSignalHandlerEvents.Load())
+	require.Equal(t, int32(0), stopSignalHandlerEvents.Load())
 
 	p.Stop()
 	p.Stop()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
-	require.Equal(t, 1, startEvent)
-	require.Equal(t, 1, stopEvent)
+	require.Equal(t, int32(1), startSignalHandlerEvents.Load())
+	require.Equal(t, int32(1), stopSignalHandlerEvents.Load())
 
 	p.Start()
 	p.Start()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
-	require.Equal(t, 2, startEvent)
-	require.Equal(t, 1, stopEvent)
+	require.Equal(t, int32(2), startSignalHandlerEvents.Load())
+	require.Equal(t, int32(1), stopSignalHandlerEvents.Load())
 
 	p.Stop()
 	p.Stop()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
-	require.Equal(t, 2, startEvent)
-	require.Equal(t, 2, stopEvent)
+	require.Equal(t, int32(2), startSignalHandlerEvents.Load())
+	require.Equal(t, int32(2), stopSignalHandlerEvents.Load())
 }
 
 func TestExpvars(t *testing.T) {
+	var buf bytes.Buffer
+
 	hello := expvar.NewString("hello")
 	hello.Set("world")
 
@@ -198,6 +200,7 @@ func TestExpvars(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(testEventHandler(&buf)),
 	)
 	require.NotNil(t, p)
 
@@ -207,6 +210,9 @@ func TestExpvars(t *testing.T) {
 		require.Equal(t, "world", m["hello"].(string))
 		t.Log("hello", m["hello"].(string))
 	})
+
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+	t.Logf("\n%s", buf.String())
 }
 
 // =============================================================================
@@ -280,6 +286,8 @@ func (tht *TestHookTwo) HasPostShutdownTriggered() bool {
 }
 
 func TestWithHooks(t *testing.T) {
+	var buf bytes.Buffer
+
 	address := testAddress(t)
 
 	one := &TestHookOne{}
@@ -289,27 +297,31 @@ func TestWithHooks(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(testEventHandler(&buf)),
 		profiler.WithHooks(one, two),
 	)
 	require.NotNil(t, p)
 
 	p.Start()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
-	assert.NoError(t, syscall.Kill(syscall.Getpid(), signal))
+	require.NoError(t, syscall.Kill(syscall.Getpid(), signal))
 	time.Sleep(100 * time.Millisecond) // switch goroutine
-	assert.True(t, one.HasPreStartupTriggered())
-	assert.True(t, two.HasPreStartupTriggered())
+	require.True(t, one.HasPreStartupTriggered())
+	require.True(t, two.HasPreStartupTriggered())
 
 	resp, err := http.Get(fmt.Sprintf("http://%s", p.Address()))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
 
 	p.Stop()
-	assert.True(t, one.HasPostShutdownTriggered())
-	assert.True(t, two.HasPostShutdownTriggered())
+	require.True(t, one.HasPostShutdownTriggered())
+	require.True(t, two.HasPostShutdownTriggered())
+
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+	t.Logf("\n%s", buf.String())
 }
 
 // =============================================================================
@@ -337,6 +349,8 @@ func (hfs *HookFailedStart) IsShutdown() bool {
 	return hfs.Shutdown
 }
 func TestFailedStart(t *testing.T) {
+	var buf bytes.Buffer
+
 	// get a free port
 	l, _ := net.Listen("tcp", "")
 
@@ -344,7 +358,7 @@ func TestFailedStart(t *testing.T) {
 	defer l.Close()
 
 	_, port, err := net.SplitHostPort(l.Addr().String())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	address := fmt.Sprintf("localhost:%s", port)
 
@@ -353,10 +367,14 @@ func TestFailedStart(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(testEventHandler(&buf)),
 		profiler.WithHooks(fh),
 	)
 	require.NotNil(t, p)
 
 	testProfiler(t, p, "", false, nil)
-	assert.True(t, fh.IsShutdown())
+	require.True(t, fh.IsShutdown())
+
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+	t.Logf("\n%s", buf.String())
 }

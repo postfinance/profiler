@@ -1,7 +1,9 @@
 package profiler
 
 import (
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -40,5 +42,24 @@ func WithEventHandler(evt EventHandler) Option {
 func WithHooks(hooks ...Hooker) Option {
 	return func(p *Profiler) {
 		p.hooks = append(p.hooks, hooks...)
+	}
+}
+
+// =============================================================================
+
+func DefaultEventHandler() EventHandler {
+	l := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
+	return func(msg string, args ...any) {
+		switch {
+		case strings.HasPrefix(msg, "DEBUG: "):
+			l.Debug(strings.TrimPrefix(msg, "DEBUG: "), args...)
+		case strings.HasPrefix(msg, "ERROR: "):
+			l.Error(strings.TrimPrefix(msg, "ERROR: "), args...)
+		default:
+			l.Info(msg, args...)
+		}
 	}
 }
