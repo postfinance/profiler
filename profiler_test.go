@@ -42,12 +42,15 @@ func testAddress(t *testing.T) string {
 	return fmt.Sprintf("localhost:%s", port)
 }
 
-func testEventHandler(w io.Writer) profiler.EventHandler {
+func testEventHandler(w io.Writer, mu *sync.Mutex) profiler.EventHandler {
 	l := slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}))
 
 	return func(msg string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+
 		switch {
 		case strings.HasPrefix(msg, "DEBUG: "):
 			l.Debug(strings.TrimPrefix(msg, "DEBUG: "), args...)
@@ -101,6 +104,7 @@ func testProfiler(t *testing.T,
 
 func TestStart(t *testing.T) {
 	var buf bytes.Buffer
+	var mu sync.Mutex
 
 	address := testAddress(t)
 
@@ -108,18 +112,21 @@ func TestStart(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(testEventHandler(&buf)),
+		profiler.WithEventHandler(testEventHandler(&buf, &mu)),
 	)
 	require.NotNil(t, p)
 
 	testProfiler(t, p, "", true, nil)
 
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+	mu.Lock()
 	t.Logf("\n%s", buf.String())
+	mu.Unlock()
 }
 
 func TestRestart(t *testing.T) {
 	var buf bytes.Buffer
+	var mu sync.Mutex
 
 	address := testAddress(t)
 
@@ -127,7 +134,7 @@ func TestRestart(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(testEventHandler(&buf)),
+		profiler.WithEventHandler(testEventHandler(&buf, &mu)),
 	)
 	require.NotNil(t, p)
 
@@ -135,7 +142,9 @@ func TestRestart(t *testing.T) {
 	testProfiler(t, p, "", true, nil)
 
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+	mu.Lock()
 	t.Logf("\n%s", buf.String())
+	mu.Unlock()
 }
 
 func TestMultipleStartStop(t *testing.T) {
@@ -190,6 +199,7 @@ func TestMultipleStartStop(t *testing.T) {
 
 func TestExpvars(t *testing.T) {
 	var buf bytes.Buffer
+	var mu sync.Mutex
 
 	hello := expvar.NewString("hello")
 	hello.Set("world")
@@ -200,7 +210,7 @@ func TestExpvars(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(testEventHandler(&buf)),
+		profiler.WithEventHandler(testEventHandler(&buf, &mu)),
 	)
 	require.NotNil(t, p)
 
@@ -212,7 +222,9 @@ func TestExpvars(t *testing.T) {
 	})
 
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+	mu.Lock()
 	t.Logf("\n%s", buf.String())
+	mu.Unlock()
 }
 
 // =============================================================================
@@ -287,6 +299,7 @@ func (tht *TestHookTwo) HasPostShutdownTriggered() bool {
 
 func TestWithHooks(t *testing.T) {
 	var buf bytes.Buffer
+	var mu sync.Mutex
 
 	address := testAddress(t)
 
@@ -297,7 +310,7 @@ func TestWithHooks(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(testEventHandler(&buf)),
+		profiler.WithEventHandler(testEventHandler(&buf, &mu)),
 		profiler.WithHooks(one, two),
 	)
 	require.NotNil(t, p)
@@ -321,7 +334,9 @@ func TestWithHooks(t *testing.T) {
 	require.True(t, two.HasPostShutdownTriggered())
 
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+	mu.Lock()
 	t.Logf("\n%s", buf.String())
+	mu.Unlock()
 }
 
 // =============================================================================
@@ -350,6 +365,7 @@ func (hfs *HookFailedStart) IsShutdown() bool {
 }
 func TestFailedStart(t *testing.T) {
 	var buf bytes.Buffer
+	var mu sync.Mutex
 
 	// get a free port
 	l, _ := net.Listen("tcp", "")
@@ -367,7 +383,7 @@ func TestFailedStart(t *testing.T) {
 		profiler.WithSignal(signal),
 		profiler.WithAddress(address),
 		profiler.WithTimeout(timeout),
-		profiler.WithEventHandler(testEventHandler(&buf)),
+		profiler.WithEventHandler(testEventHandler(&buf, &mu)),
 		profiler.WithHooks(fh),
 	)
 	require.NotNil(t, p)
@@ -376,5 +392,7 @@ func TestFailedStart(t *testing.T) {
 	require.True(t, fh.IsShutdown())
 
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+	mu.Lock()
 	t.Logf("\n%s", buf.String())
+	mu.Unlock()
 }
