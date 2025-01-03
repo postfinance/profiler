@@ -45,7 +45,7 @@ type Profiler struct {
 // - Address: ":6666"
 // - Timeout: 10m
 func New(options ...Option) *Profiler {
-	p := &Profiler{
+	p := Profiler{
 		signal:  syscall.SIGHUP,
 		address: ":6666",
 		timeout: 10 * time.Minute,
@@ -56,10 +56,10 @@ func New(options ...Option) *Profiler {
 	}
 
 	for _, option := range options {
-		option(p)
+		option(&p)
 	}
 
-	return p
+	return &p
 }
 
 // Address returns the listen address for the debug endpoint
