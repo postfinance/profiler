@@ -10,8 +10,7 @@ type EventType int
 
 // Event types
 const (
-	DebugEvent = iota
-	InfoEvent
+	InfoEvent = iota
 	ErrorEvent
 )
 
@@ -25,12 +24,10 @@ func DefaultEventHandler() EventHandler {
 
 	return func(eventType EventType, msg string, args ...any) {
 		switch eventType {
-		case DebugEvent:
-			l.Debug(msg, args...)
+		case InfoEvent:
+			l.Info(msg, args...)
 		case ErrorEvent:
 			l.Error(msg, args...)
-		default:
-			l.Info(msg, args...)
 		}
 	}
 }

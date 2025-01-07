@@ -52,12 +52,10 @@ func testEventHandler(w io.Writer, mu *sync.Mutex) profiler.EventHandler {
 		defer mu.Unlock()
 
 		switch eventType {
-		case profiler.DebugEvent:
-			l.Debug(msg, args...)
+		case profiler.InfoEvent:
+			l.Info(msg, args...)
 		case profiler.ErrorEvent:
 			l.Error(msg, args...)
-		default:
-			l.Info(msg, args...)
 		}
 	}
 }
