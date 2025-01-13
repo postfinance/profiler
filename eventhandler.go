@@ -18,8 +18,8 @@ const (
 type EventHandler func(t EventType, v string, args ...any)
 
 func DefaultEventHandler() EventHandler {
-	l := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+	l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
 	}))
 
 	return func(eventType EventType, msg string, args ...any) {

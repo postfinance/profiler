@@ -2,6 +2,7 @@ package profiler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"expvar"
 	"fmt"
@@ -66,9 +67,13 @@ func testProfiler(t *testing.T,
 	success bool,
 	checkBody func(t *testing.T, body []byte),
 ) {
-	p.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	p.Start(ctx)
+
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+
 	require.NoError(t, syscall.Kill(syscall.Getpid(), signal))
+
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	client := http.Client{
@@ -86,7 +91,7 @@ func testProfiler(t *testing.T,
 	}
 
 	resp, err := client.Get(fmt.Sprintf("http://%s%s", p.Address(), ep))
-	require.Equal(t, err == nil, success)
+	require.Equal(t, success, err == nil, err)
 
 	if resp != nil && resp.Body != nil {
 		var buf bytes.Buffer
@@ -97,7 +102,7 @@ func testProfiler(t *testing.T,
 		checkBody(t, buf.Bytes())
 	}
 
-	p.Stop()
+	cancel()
 }
 
 func TestStart(t *testing.T) {
@@ -137,6 +142,7 @@ func TestRestart(t *testing.T) {
 	require.NotNil(t, p)
 
 	testProfiler(t, p, "", true, nil)
+	time.Sleep(100 * time.Millisecond) // switch goroutine
 	testProfiler(t, p, "", true, nil)
 
 	time.Sleep(100 * time.Millisecond) // switch goroutine
@@ -166,29 +172,31 @@ func TestMultipleStartStop(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	p.Start()
-	p.Start()
+	ctx1, cancel1 := context.WithCancel(context.Background())
+
+	p.Start(ctx1)
+	p.Start(ctx1)
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	require.Equal(t, int32(1), startSignalHandlerEvents.Load())
 	require.Equal(t, int32(0), stopSignalHandlerEvents.Load())
 
-	p.Stop()
-	p.Stop()
+	cancel1()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	require.Equal(t, int32(1), startSignalHandlerEvents.Load())
 	require.Equal(t, int32(1), stopSignalHandlerEvents.Load())
 
-	p.Start()
-	p.Start()
+	ctx2, cancel2 := context.WithCancel(context.Background())
+
+	p.Start(ctx2)
+	p.Start(ctx2)
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	require.Equal(t, int32(2), startSignalHandlerEvents.Load())
 	require.Equal(t, int32(1), stopSignalHandlerEvents.Load())
 
-	p.Stop()
-	p.Stop()
+	cancel2()
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	require.Equal(t, int32(2), startSignalHandlerEvents.Load())
@@ -313,10 +321,15 @@ func TestWithHooks(t *testing.T) {
 	)
 	require.NotNil(t, p)
 
-	p.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	p.Start(ctx)
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+
 	require.NoError(t, syscall.Kill(syscall.Getpid(), signal))
+
 	time.Sleep(100 * time.Millisecond) // switch goroutine
+
 	require.True(t, one.HasPreStartupTriggered())
 	require.True(t, two.HasPreStartupTriggered())
 
@@ -327,7 +340,10 @@ func TestWithHooks(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	p.Stop()
+	cancel()
+
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+
 	require.True(t, one.HasPostShutdownTriggered())
 	require.True(t, two.HasPostShutdownTriggered())
 

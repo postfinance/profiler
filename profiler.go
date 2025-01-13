@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,26 +32,22 @@ type Profiler struct {
 	timeout time.Duration
 	hooks   []Hooker
 
-	started *atomic.Int32
 	running sync.Mutex
-	stopC   chan struct{}
 	evt     EventHandler
 }
 
 // New returns a new profiler
 // Defaults:
-// - Signal : syscall.SIGHUP
+// - Signal : syscall.SIGUSR1
 // - Address: ":6666"
-// - Timeout: 10m
+// - Timeout: 30m
 func New(options ...Option) *Profiler {
 	p := Profiler{
-		signal:  syscall.SIGHUP,
+		signal:  syscall.SIGUSR1,
 		address: ":6666",
-		timeout: 10 * time.Minute,
+		timeout: 30 * time.Minute,
 
-		started: new(atomic.Int32),
-		stopC:   make(chan struct{}),
-		evt:     DefaultEventHandler(),
+		evt: DefaultEventHandler(),
 	}
 
 	for _, option := range options {
@@ -67,61 +62,49 @@ func (p *Profiler) Address() string {
 	return p.address
 }
 
-// Start the profiler signal handler
-// After the first call, subsequent calls
-// to Start do nothing until Stop is called.
-func (p *Profiler) Start() {
-	if p.started.CompareAndSwap(0, 1) {
-		go p.start()
-	}
-}
-
-// Stop the profiler signal handler
-// After the first call, subsequent calls
-// to Stop do nothing until Start is called.
-func (p *Profiler) Stop() {
-	if p.started.CompareAndSwap(1, 0) {
-		p.stopC <- struct{}{}
-	}
-}
-
 // =============================================================================
 
-func (p *Profiler) start() {
-	p.running.Lock()
-	defer p.running.Unlock()
-
-	p.evt(InfoEvent, "start profiler signal handler", "signal", p.signal)
-
-	sigC := make(chan os.Signal, 1)
-	wg := new(sync.WaitGroup)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	for {
-		signal.Notify(sigC, p.signal)
-
-		select {
-		case <-sigC: // receive signal to start the debug endpoint
-			disableSignals(sigC)
-
-			wg.Add(1)
-			p.startEndpoint(ctx)
-			wg.Done()
-		case <-p.stopC: // stop the signal handler
-			p.evt(InfoEvent, "stop profiler signal handler", "signal", p.signal)
-
-			disableSignals(sigC)
-
-			// stop the endpoint (if running) and
-			// wait until the endpoint is stopped
-			cancel()
-			wg.Wait()
-
-			p.evt(InfoEvent, "profiler signal handler stopped")
-
-			return
-		}
+func (p *Profiler) Start(ctx context.Context) {
+	if !p.running.TryLock() {
+		return
 	}
+
+	go func() {
+		defer p.running.Unlock()
+
+		p.evt(InfoEvent, "start profiler signal handler", "signal", p.signal)
+
+		sigC := make(chan os.Signal, 1)
+		wg := new(sync.WaitGroup)
+		ctx, cancel := context.WithCancel(ctx)
+
+		for {
+			signal.Notify(sigC, p.signal)
+
+			select {
+			case <-sigC: // receive signal to start the debug endpoint
+				disableSignals(sigC)
+
+				wg.Add(1)
+				p.startEndpoint(ctx)
+				wg.Done()
+
+			case <-ctx.Done(): // stop the signal handler
+				p.evt(InfoEvent, "stop profiler signal handler", "signal", p.signal)
+
+				disableSignals(sigC)
+
+				// stop the endpoint (if running) and
+				// wait until the endpoint is stopped
+				cancel()
+				wg.Wait()
+
+				p.evt(InfoEvent, "profiler signal handler stopped")
+
+				return
+			}
+		}
+	}()
 }
 
 // startEndpoint starts the debug http endpoint
@@ -137,7 +120,6 @@ func (p *Profiler) startEndpoint(ctx context.Context) {
 
 	go func() {
 		p.evt(InfoEvent, "start debug endpoint", "address", p.address)
-
 		// execute the PreStart hooks
 		for _, h := range p.hooks {
 			h.PreStart()

@@ -10,9 +10,9 @@ import (
 
 func TestDefaultProfiler(t *testing.T) {
 	p := New()
-	require.Equal(t, syscall.SIGHUP, p.signal)
+	require.Equal(t, syscall.SIGUSR1, p.signal)
 	require.Equal(t, ":6666", p.address)
-	require.Equal(t, 10*time.Minute, p.timeout)
+	require.Equal(t, 30*time.Minute, p.timeout)
 }
 
 func TestWithSignal(t *testing.T) {

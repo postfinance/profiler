@@ -23,16 +23,16 @@ profiler.New(
 
 ## Defaults
 
-| Parameter | Default |
-|-----------|---------|
-| Signal    | *HUP*   |
-| Listen    | *:6666* |
-| Timeout   | *10m*   |
+| Parameter | Default   |
+|-----------|-----------|
+| Signal    | *SIGUSR1* |
+| Listen    | *:6666*   |
+| Timeout   | *30m*     |
 
 ### Start the pprof endpoint
 
 ```shell
-pkill -HUP <your Go program>
+pkill -SIGUSR1 <your Go program>
 ```
 
 > After *timeout* the endpoint will shutdown.
@@ -59,7 +59,7 @@ NAME                    READY   STATUS    RESTARTS   AGE
 ...
 
 kubectl exec -ti <your pod> sh
-/ # pkill -HUP <your Go program>
+/ # pkill -SIGUSR1 <your Go program>
 / #
 ```
 
