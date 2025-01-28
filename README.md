@@ -1,30 +1,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/postfinance/profiler)](https://goreportcard.com/report/github.com/postfinance/profiler)
 [![GoDoc](https://godoc.org/github.com/postfinance/profiler?status.svg)](https://godoc.org/github.com/postfinance/profiler)
-[![Build Status](https://github.com/postfinance/profiler/workflows/build/badge.svg)](https://github.com/postfinance/profiler/actions)
-[![Coverage Status](https://coveralls.io/repos/github/postfinance/profiler/badge.svg?branch=master)](https://coveralls.io/github/postfinance/profiler?branch=master)
-
-
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
-
-- [profiler](#profiler)
-    - [Usage](#usage)
-        - [Start the pprof endpoint](#start-the-pprof-endpoint)
-        - [Collect pprof data](#collect-pprof-data)
-    - [Usage with kubernetes services](#usage-with-kubernetes-services)
-        - [Start the pprof endpoint](#start-the-pprof-endpoint-1)
-        - [Check log](#check-log)
-        - [Port-forward](#port-forward)
-        - [Collect pprof data](#collect-pprof-data-1)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+[![Build](https://github.com/postfinance/profiler/actions/workflows/build.yml/badge.svg)](https://github.com/postfinance/profiler/actions/workflows/build.yml)
+[![Coverage](https://coveralls.io/repos/github/postfinance/profiler/badge.svg?branch=master)](https://coveralls.io/github/postfinance/profiler?branch=master)
 
 # profiler
 
 ## Usage
 
 Add the following line to your Go code:
+
 ```go
 // create and start the profiler handler
 profiler.New().Start()
@@ -37,56 +21,73 @@ profiler.New(
 )
 ```
 
-Defaults:
-- Signal *HUP*
-- Listen *:6666*
-- Timeout *10m*
+## Defaults
+
+| Parameter | Default   |
+|-----------|-----------|
+| Signal    | *SIGUSR1* |
+| Listen    | *:6666*   |
+| Timeout   | *30m*     |
 
 ### Start the pprof endpoint
-```bash
-pkill -HUP <your Go program>
+
+```shell
+pkill -SIGUSR1 <your Go program>
 ```
-After *timeout* the endpoint will shutdown.
+
+> After *timeout* the endpoint will shutdown.
 
 ### Collect pprof data
-```bash
+
+```shell
 go tool pprof -http $(hostname):8080 http://localhost:6666/debug/pprof/profile
 ```
 
-## Usage with kubernetes services
+... or ...
+
+```shell
+go tool pprof -http localhost:7007 http://localhost:8080/debug/pprof/profile
+```
+
+## Kubernetes
 
 ### Start the pprof endpoint
-```bash
-$ k get pods
+
+```shell
+kubectl get pods
 NAME                    READY   STATUS    RESTARTS   AGE
 ...
 
-$ k exec -ti <your pod> sh
-/ # pkill -HUP <your Go program>
+kubectl exec -ti <your pod> sh
+/ # pkill -SIGUSR1 <your Go program>
 / #
 ```
-After *timeout* the endpoint will shutdown.
 
+> After *timeout* the endpoint will shutdown.
 
 ### Check log
-```bash
-$ k logs <your pod> -f
-...
-2020/02/10 16:37:09 start pprof endpoint on ":6666"
-...
+
+```shell
+kubectl logs <your pod> -f | grep 'start debug endpoint'
 ```
 
 ### Port-forward
-```bash
-$  k port-forward <your pod> 8080:6666
+
+```shell
+kubectl port-forward <your pod> 8080:6666
 Forwarding from 127.0.0.1:8080 -> 6666
 Forwarding from [::1]:8080 -> 6666
 Handling connection for 8080
 ```
 
 ### Collect pprof data
-```bash
-$ go tool pprof -http $(hostname):8888 http://localhost:8080/debug/pprof/profile
+
+```shell
+go tool pprof -http $(hostname):8888 http://localhost:8080/debug/pprof/profile
 ```
 
+... or ...
 
+```shell
+go tool pprof -http localhost:7007 http://localhost:8080/debug/pprof/profile
+```

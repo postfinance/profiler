@@ -3,7 +3,8 @@ package profiler
 
 import (
 	"context"
-	"log"
+	"errors"
+	"expvar"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,208 +12,180 @@ import (
 	"syscall"
 	"time"
 
-	// nolint: gosec // G108: Profiling endpoint is automatically exposed on /debug/pprof
-	_ "net/http/pprof" // normally pprof will be imported in the main package
+	"net/http/pprof"
 )
-
-// nolint: gochecknoglobals
-var (
-	pprofmux *http.ServeMux
-)
-
-// nolint: gochecknoinits
-func init() {
-	pprofmux = http.DefaultServeMux
-	http.DefaultServeMux = http.NewServeMux()
-}
 
 // Hooker represents the interface for Profiler hooks
 type Hooker interface {
-	// PreStart will be executed after the signal was received but before the pprof endpoint starts
+	// PreStart will be executed after the signal was received but before the debug endpoint starts
 	PreStart()
-	// PostShutdown will be executed after the pprof endpoint is shutdown
+	// PostShutdown will be executed after the debug endpoint is shutdown or the start has failed
 	PostShutdown()
 }
 
-// Profiler represents profiling
+// =============================================================================
+
+// Profiler represents the Profiler
 type Profiler struct {
-	sync.Mutex
 	signal  os.Signal
 	address string
 	timeout time.Duration
 	hooks   []Hooker
 
-	stop chan struct{}
-	done chan struct{}
-	once *sync.Once
-}
-
-// Opt are Profiler functional options
-type Opt func(*Profiler)
-
-// WithSignal sets the signal to aktivate the pprof handler
-func WithSignal(s os.Signal) Opt {
-	return func(p *Profiler) {
-		p.signal = s
-	}
-}
-
-// WithAddress sets the listen address of the pprof handler
-func WithAddress(address string) Opt {
-	return func(p *Profiler) {
-		p.address = address
-	}
-}
-
-// WithTimeout sets the timeout after the pprof handler will be shutdown
-func WithTimeout(timeout time.Duration) Opt {
-	return func(p *Profiler) {
-		p.timeout = timeout
-	}
-}
-
-// WithHooks registers the Profiler hooks
-func WithHooks(hooks ...Hooker) Opt {
-	return func(p *Profiler) {
-		p.hooks = append(p.hooks, hooks...)
-	}
+	running sync.Mutex
+	evt     EventHandler
 }
 
 // New returns a new profiler
 // Defaults:
-// - Signal : syscall.SIGHUP
+// - Signal : syscall.SIGUSR1
 // - Address: ":6666"
-// - Timeout: 10m
-func New(opts ...Opt) *Profiler {
-	p := &Profiler{
-		signal:  syscall.SIGHUP,
+// - Timeout: 30m
+func New(options ...Option) *Profiler {
+	p := Profiler{
+		signal:  syscall.SIGUSR1,
 		address: ":6666",
-		timeout: 10 * time.Minute,
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
-		once:    new(sync.Once),
+		timeout: 30 * time.Minute,
+
+		evt: DefaultEventHandler(),
 	}
 
-	for _, opt := range opts {
-		opt(p)
+	for _, option := range options {
+		option(&p)
 	}
 
-	return p
+	return &p
 }
 
-// Address returns the listen address for the pprof endpoint
+// Address returns the listen address for the debug endpoint
 func (p *Profiler) Address() string {
 	return p.address
 }
 
-// Start the pprof signal handler
-func (p *Profiler) Start() {
+// =============================================================================
+
+func (p *Profiler) Start(ctx context.Context) {
+	if !p.running.TryLock() {
+		return
+	}
+
 	go func() {
-		p.once.Do(p.handler)
+		defer p.running.Unlock()
+
+		p.evt(InfoEvent, "start profiler signal handler", "signal", p.signal)
+
+		sigC := make(chan os.Signal, 1)
+		wg := new(sync.WaitGroup)
+		ctx, cancel := context.WithCancel(ctx)
+
+		for {
+			signal.Notify(sigC, p.signal)
+
+			select {
+			case <-sigC: // receive signal to start the debug endpoint
+				disableSignals(sigC)
+
+				wg.Add(1)
+				p.startEndpoint(ctx)
+				wg.Done()
+
+			case <-ctx.Done(): // stop the signal handler
+				p.evt(InfoEvent, "stop profiler signal handler", "signal", p.signal)
+
+				disableSignals(sigC)
+
+				// stop the endpoint (if running) and
+				// wait until the endpoint is stopped
+				cancel()
+				wg.Wait()
+
+				p.evt(InfoEvent, "profiler signal handler stopped")
+
+				return
+			}
+		}
 	}()
 }
 
-// Stop the pprof signal handler
-func (p *Profiler) Stop() {
-	p.stop <- struct{}{}
-	<-p.done
-	p.reset()
-}
+// startEndpoint starts the debug http endpoint
+func (p *Profiler) startEndpoint(ctx context.Context) {
+	shutdown := make(chan struct{})
 
-func (p *Profiler) reset() {
-	p.Lock()
-	p.once = new(sync.Once) // reset sync.Once for a subsequent call to Start
-	p.Unlock()
-}
-
-func (p *Profiler) handler() {
-	log.Printf("start profiler handler - pprof endpoint will be started on signal: %v", p.signal)
-
-	defer log.Println("profiler handler stopped")
-
-	sig := make(chan os.Signal, 1)
-
-	for {
-		// signal handling
-		signal.Notify(sig, p.signal)
-		select {
-		case <-sig:
-			disableSignals(sig)
-		case <-p.stop:
-			disableSignals(sig)
-			p.done <- struct{}{}
-
-			return
-		}
-		// start the pprof endpoint
-		shutdown := make(chan struct{})
-		srv := &http.Server{
-			Addr:    p.address,
-			Handler: pprofmux,
-		}
-
-		go func() {
-			log.Printf("start pprof endpoint on %q\n", p.address)
-			// execute the PreStart hooks
-			for _, h := range p.hooks {
-				h.PreStart()
-			}
-
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Println("failed to start pprof endpoint:", err)
-			} else {
-				log.Println("pprof endpoint stopped")
-			}
-			// execute the PostShutdown hooks ... even after a failed startup
-			for _, h := range p.hooks {
-				h.PostShutdown()
-			}
-
-			close(shutdown)
-		}()
-		//
-		timer := time.NewTimer(p.timeout)
-		select {
-		case <-timer.C: // timer expired
-			shutdownEndpoint(srv, p.timeout)
-			<-shutdown
-		case <-shutdown: // start of endpoint failed
-			if !timer.Stop() {
-				<-timer.C
-			}
-		case <-p.stop: // stop requested
-			if !timer.Stop() {
-				<-timer.C
-			}
-
-			shutdownEndpoint(srv, p.timeout)
-			<-shutdown
-			p.done <- struct{}{}
-
-			return
-		}
+	srv := &http.Server{
+		Addr:         p.address,
+		Handler:      standardLibraryMux(),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
+
+	go func() {
+		p.evt(InfoEvent, "start debug endpoint", "address", p.address)
+		// execute the PreStart hooks
+		for _, h := range p.hooks {
+			h.PreStart()
+		}
+
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			p.evt(ErrorEvent, "start debug endpoint", "err", err)
+		}
+
+		// execute the PostShutdown hooks ... even after a failed startup
+		for _, h := range p.hooks {
+			h.PostShutdown()
+		}
+
+		close(shutdown)
+	}()
+
+	timer := time.NewTimer(p.timeout)
+
+	select {
+	case <-timer.C: // timer expired
+	case <-ctx.Done(): // context canceled
+		timer.Stop()
+	}
+
+	p.evt(InfoEvent, "stop debug endpoint", "address", p.address, "timeout", p.timeout)
+
+	sCtx, cancel := context.WithTimeout(context.Background(), p.timeout)
+	defer cancel()
+
+	if err := srv.Shutdown(sCtx); err != nil {
+		p.evt(ErrorEvent, "shutdown debug endpoint", "err", err)
+	}
+
+	<-shutdown
+	p.evt(InfoEvent, "debug endpoint stopped")
+}
+
+// =============================================================================
+
+// standardLibraryMux registers all the debug routes from the standard library
+// into a new mux bypassing the use of the DefaultServerMux. Using the
+// DefaultServerMux would be a security risk since a dependency could inject a
+// handler into our service without us knowing it.
+//
+// Source: https://github.com/ardanlabs/service4.1-video/blob/main/business/web/v1/debug/debug.go
+func standardLibraryMux() *http.ServeMux {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.Handle("/debug/vars", expvar.Handler())
+
+	return mux
 }
 
 // disableSignals stop receiving of signals and drain the signal channel
-func disableSignals(c chan os.Signal) {
-	signal.Stop(c)
+func disableSignals(sigC chan os.Signal) {
+	signal.Stop(sigC)
+
 	// drain signal channel
 	select {
-	case <-c:
+	case <-sigC:
 	default:
-	}
-}
-
-// shutdownEndpoint shutdown the http server graceful
-func shutdownEndpoint(srv *http.Server, timeout time.Duration) {
-	log.Printf("shutdown pprof endpoint on %q\n", srv.Addr)
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Println("failed to shutdown pprof endpoint:", err)
 	}
 }
