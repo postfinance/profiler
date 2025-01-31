@@ -6,13 +6,16 @@ import (
 	"errors"
 	"expvar"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
-	"syscall"
 	"time"
+)
 
-	"net/http/pprof"
+const (
+	defaultTimeout = 30 * time.Minute
+	defaultListen  = ":6666"
 )
 
 // Hooker represents the interface for Profiler hooks
@@ -34,27 +37,6 @@ type Profiler struct {
 
 	running sync.Mutex
 	evt     EventHandler
-}
-
-// New returns a new profiler
-// Defaults:
-// - Signal : syscall.SIGUSR1
-// - Address: ":6666"
-// - Timeout: 30m
-func New(options ...Option) *Profiler {
-	p := Profiler{
-		signal:  syscall.SIGUSR1,
-		address: ":6666",
-		timeout: 30 * time.Minute,
-
-		evt: DefaultEventHandler(),
-	}
-
-	for _, option := range options {
-		option(&p)
-	}
-
-	return &p
 }
 
 // Address returns the listen address for the debug endpoint
