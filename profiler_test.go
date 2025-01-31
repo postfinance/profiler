@@ -1,3 +1,5 @@
+//go:build !windows
+
 package profiler_test
 
 import (
@@ -377,6 +379,7 @@ func (hfs *HookFailedStart) IsShutdown() bool {
 
 	return hfs.Shutdown
 }
+
 func TestFailedStart(t *testing.T) {
 	var buf bytes.Buffer
 	var mu sync.Mutex
