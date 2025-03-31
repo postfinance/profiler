@@ -91,3 +91,7 @@ go tool pprof -http $(hostname):8888 http://localhost:8080/debug/pprof/profile
 ```shell
 go tool pprof -http localhost:7007 http://localhost:8080/debug/pprof/profile
 ```
+
+### Use [statsviz](https://github.com/arl/statsviz)
+
+Open: [http://localhost:8080/debug/statsviz](http://localhost:8080/debug/statsviz)
