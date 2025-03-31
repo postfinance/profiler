@@ -58,7 +58,7 @@ kubectl get pods
 NAME                    READY   STATUS    RESTARTS   AGE
 ...
 
-kubectl exec -ti <your pod> sh
+kubectl exec -ti <your pod> -- sh
 / # pkill -SIGUSR1 <your Go program>
 / #
 ```
