@@ -11,6 +11,8 @@ import (
 	"os/signal"
 	"sync"
 	"time"
+
+	"github.com/arl/statsviz"
 )
 
 const (
@@ -157,6 +159,8 @@ func standardLibraryMux() *http.ServeMux {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.Handle("/debug/vars", expvar.Handler())
+
+	_ = statsviz.Register(mux)
 
 	return mux
 }

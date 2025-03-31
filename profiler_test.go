@@ -235,6 +235,30 @@ func TestExpvars(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestStatsviz(t *testing.T) {
+	var buf bytes.Buffer
+	var mu sync.Mutex
+
+	address := testAddress(t)
+
+	p := profiler.New(
+		profiler.WithSignal(signal),
+		profiler.WithAddress(address),
+		profiler.WithTimeout(timeout),
+		profiler.WithEventHandler(testEventHandler(&buf, &mu)),
+	)
+	require.NotNil(t, p)
+
+	testProfiler(t, p, "/debug/statsviz", true, func(t *testing.T, body []byte) {
+		require.NotEmpty(t, body)
+	})
+
+	time.Sleep(100 * time.Millisecond) // switch goroutine
+	mu.Lock()
+	t.Logf("\n%s", buf.String())
+	mu.Unlock()
+}
+
 // =============================================================================
 
 type TestHookOne struct {
