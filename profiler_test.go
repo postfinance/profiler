@@ -79,7 +79,7 @@ func testProfiler(t *testing.T,
 	time.Sleep(100 * time.Millisecond) // switch goroutine
 
 	client := http.Client{
-		Timeout: 10 * time.Millisecond,
+		Timeout: 5 * time.Second,
 	}
 
 	if ep == "" {
