@@ -99,5 +99,5 @@ Open: [http://localhost:8080/debug/statsviz](http://localhost:8080/debug/statsvi
 ### Use [expvarmon](https://github.com/divan/expvarmon)
 
 ```shell
-exvarmon -ports=http://localhost:8080
+expvarmon -ports=http://localhost:8080
 ```
