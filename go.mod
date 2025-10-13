@@ -1,9 +1,9 @@
 module github.com/postfinance/profiler
 
-go 1.23
+go 1.23.0
 
 require (
-	github.com/arl/statsviz v0.7.1
+	github.com/arl/statsviz v0.7.2
 	github.com/stretchr/testify v1.11.1
 )
 
